@@ -5,9 +5,9 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace GPSTrackerTest
+namespace ETAPredictor
 {
-    public class GeoHelper
+    internal class GeoHelper
     {
         /// <summary>
         /// Returns an estimate of the position using dead reckoning based on a GPS data point and the time passed.
@@ -15,7 +15,7 @@ namespace GPSTrackerTest
         /// <param name="data"></param>
         /// <param name="since"></param>
         /// <returns></returns>
-        public static GPSData GetEstimatedPosition(GPSData data, TimeSpan since)
+        internal static GPSData GetEstimatedPosition(GPSData data, TimeSpan since)
         {
             if (data.Speed < 2 || since.Ticks == 0)
             {
@@ -35,20 +35,20 @@ namespace GPSTrackerTest
             return clone;
         }
 
-        public static GlobalCoordinates ConvertToGlobalCoords(GPSData data)
+        internal static GlobalCoordinates ConvertToGlobalCoords(GPSData data)
         {
             return new Geodesy.GlobalCoordinates(
                             new Geodesy.Angle(data.Lat), new Geodesy.Angle(data.Long));
         }
 
-        public static double GetDistanceBetweenInMeters(GPSData ptOne, GPSData ptTwo)
+        internal static double GetDistanceBetweenInMeters(GPSData ptOne, GPSData ptTwo)
         {
             Geodesy.GeodeticCalculator calc = new Geodesy.GeodeticCalculator(Ellipsoid.WGS84);
             var result = calc.CalculateGeodeticCurve(ConvertToGlobalCoords(ptOne), ConvertToGlobalCoords(ptTwo));
             return result.EllipsoidalDistance;
         }
 
-        public static double GetAngularDistanceBetweenHeadings(GPSData ptOne, GPSData ptTwo)
+        internal static double GetAngularDistanceBetweenHeadings(GPSData ptOne, GPSData ptTwo)
         {
             var heading = Math.Abs(ptOne.Heading - ptTwo.Heading);
             //the furthest we can go apart is 180 degrees. If the result is more than that, subtract 360 and take ABS

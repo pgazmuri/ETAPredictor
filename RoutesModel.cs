@@ -4,10 +4,11 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace GPSTrackerTest
+namespace ETAPredictor
 {
     public class RoutesModel
     {
+        
         private List<StopNode> _stops = new List<StopNode>();
         private List<RouteEdge> _routes = new List<RouteEdge>();
 
@@ -80,7 +81,7 @@ namespace GPSTrackerTest
                             edge.FromNode = lastStop.AssociatedStopNode;
                             edge.ToNode = NearestStop;
                             edge.CurrentTimeOnRoute = dataPoint.Time - lastStop.Time;
-                            edge.AverageTimeOnRoute = dataPoint.Time - lastStop.Time;
+                            //edge.AverageTimeOnRoute = dataPoint.Time - lastStop.Time;
 
                             
                             _routes.Add(edge);
@@ -89,7 +90,7 @@ namespace GPSTrackerTest
                         {
                             //update time on route
                             edge.CurrentTimeOnRoute = dataPoint.Time - lastStop.Time;
-                            edge.AverageTimeOnRoute = dataPoint.Time - lastStop.Time;
+                            //edge.AverageTimeOnRoute = dataPoint.Time - lastStop.Time;
                             //TODO: set average time
                         }
 
@@ -117,8 +118,6 @@ namespace GPSTrackerTest
                     //TODO: set average time
                 }
 
-                //we must be on an edge, see if there's an established edge to add our points to...
-                _totalData.Where(td => td.AssociatedRouteEdge != null);
             }
 
         }
