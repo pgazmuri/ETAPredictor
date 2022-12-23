@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace ETAPredictor
@@ -12,12 +14,47 @@ namespace ETAPredictor
         private List<StopNode> _stops = new List<StopNode>();
         private List<RouteEdge> _routes = new List<RouteEdge>();
 
-        private List<GPSData> _totalData = new List<GPSData>();
-        private Dictionary<string, GPSData> _RecentPositions = new Dictionary<string, GPSData>();
+        private Dictionary<string, List<GPSData>> _gpsDataBySerial = new Dictionary<string, List<GPSData>>();
+        private Dictionary<string, GPSData> _recentPositionsBySerial = new Dictionary<string, GPSData>();
 
         //with simulation mode we have fake current time
         private bool _simulationMode = false;
         private DateTime _simulationTime = DateTime.UtcNow;
+
+        private int _garbageCollectionCounter = 0;
+        private long _totalDataPoints = 0;
+
+        public string SaveToJSON() {
+            _stops.Select(s => s.Data).ToList();
+            _gpsDataBySerial.Keys.ToList().SelectMany(key => _gpsDataBySerial[key]).OrderBy(item => item.Time).ToList();
+            string serialized = JsonSerializer.Serialize(new RoutesModelFileFormat()
+            {
+                Stops = _stops.Select(s => s.Data).ToList(),
+                Data = _gpsDataBySerial.Keys.ToList().SelectMany(key => _gpsDataBySerial[key]).OrderBy(item => item.Time).ToList()
+            });
+            return serialized;
+        }
+
+        public static RoutesModel LoadFromJSON(string Model, bool SimulationMode)
+        {
+            var fileFormat = JsonSerializer.Deserialize<RoutesModelFileFormat>(Model);
+
+            RoutesModel newModel = new RoutesModel(fileFormat.Stops, SimulationMode);
+            if (SimulationMode)
+            {
+                fileFormat.Data.ForEach(data => { 
+                    newModel.CurrentTime = data.Time; 
+                    newModel.IntegrateDataPointIntoModel(data); //note: garbage collection can happen here.... so if we are simulation mode we set the time, it's up to whoever loads from JSON to set the time appropriately if simulating to prevent garbage collection from eating data.
+                }); 
+            }
+            else
+            {
+                fileFormat.Data.ForEach(data => newModel.IntegrateDataPointIntoModel(data)); //note: garbage collection can happen here.... so if we are simulation mode we set the time, it's up to whoever loads from JSON to set the time appropriately if simulating to prevent garbage collection from eating data.
+            }
+
+            return newModel;
+
+        }
 
         public DateTime CurrentTime
         {
@@ -45,13 +82,35 @@ namespace ETAPredictor
             Stops.ForEach(s => _stops.Add(new StopNode(s)));
         }
 
+        private void EnsureGPSSerialList(string serial)
+        {
+            if (_gpsDataBySerial.ContainsKey(serial))
+            {
+                return;
+            }
+            else
+            {
+                _gpsDataBySerial.Add(serial,new List<GPSData>());
+            }
+        }
+
         public void IntegrateDataPointIntoModel(GPSData dataPoint)
         {
+            _totalDataPoints++;
+            _garbageCollectionCounter++;
+
+            if(_totalDataPoints > 150000 && _garbageCollectionCounter > 5000)
+            {
+                CollectGarbage();
+                _garbageCollectionCounter = 0;
+            }
+
+            EnsureGPSSerialList(dataPoint.Serial);
             //we assume these are fed to us in order
-            _totalData.Add(dataPoint);
+            _gpsDataBySerial[dataPoint.Serial].Add(dataPoint);
 
             //update recent positions
-            _RecentPositions[dataPoint.Serial] = dataPoint;
+            _recentPositionsBySerial[dataPoint.Serial] = dataPoint;
 
             //First Step:
             //is this point a stop? Label it, add to stopNode object, associate the stopNode Object
@@ -80,24 +139,18 @@ namespace ETAPredictor
                             edge = new RouteEdge();
                             edge.FromNode = lastStop.AssociatedStopNode;
                             edge.ToNode = NearestStop;
-                            edge.CurrentTimeOnRoute = dataPoint.Time - lastStop.Time;
-                            //edge.AverageTimeOnRoute = dataPoint.Time - lastStop.Time;
-
-                            
                             _routes.Add(edge);
                         }
-                        else
-                        {
-                            //update time on route
-                            edge.CurrentTimeOnRoute = dataPoint.Time - lastStop.Time;
-                            //edge.AverageTimeOnRoute = dataPoint.Time - lastStop.Time;
-                            //TODO: set average time
-                        }
+
+                        //update time on route
+                        edge.IntegrateTimeOnRoute(dataPoint.Time - lastStop.Time);
+                        
 
                         //Associate previous data points from this serial to this edge...
-                        _totalData.Take(_totalData.Count - 1).Where(d => d.Serial == dataPoint.Serial).OrderByDescending(d => d.Time).TakeWhile(d => d.IdentifiedAsStopName == null).ToList().ForEach(d =>
+                        _gpsDataBySerial[dataPoint.Serial].Take(_gpsDataBySerial[dataPoint.Serial].Count - 1).OrderByDescending(d => d.Time).TakeWhile(d => d.IdentifiedAsStopName == null).ToList().ForEach(d =>
                         {
                             d.AssociatedRouteEdge = edge;
+                            edge.AssociatedData.Add(d);
                         });
                     }
                 }
@@ -122,9 +175,26 @@ namespace ETAPredictor
 
         }
 
+        private void CollectGarbage()
+        {
+            var expiration = CurrentTime.AddDays(-5);
+            //we want to remove data beyond a certain length of time, just to conserve memory. The model will basically evolve as needed over time, will be saved and rehydrated as services restart and scale, etc...
+            //so we shouldn't rely on a particular expiration windowWe probably should count backwards until we get to maybe 10K*N(serial) entries, but it's tricky because of different buckets per serial and having a consistent cutoff time is probably good. Keep in mind, 20 minutes of driving a single vehicle produces about 200 entries. 10K is like 50 hours of bus history
+            //worst case the model rebuilds itself if it's loaded after a long time of dormancy
+            _gpsDataBySerial.Keys.ToList().ForEach(key => {
+                var list = _gpsDataBySerial[key];
+                _totalDataPoints -= list.RemoveAll(item => item.Time < expiration);
+            });
+
+            //remove the data from _stops and _edges
+            _stops.ForEach(stop => stop.AssociatedData.RemoveAll(item => item.Time < expiration));
+            _routes.ForEach(route => route.AssociatedData.RemoveAll(route => route.Time < expiration)); 
+
+        }
+
         private bool IsPreviousItemStop(string serial)
         {
-            var items = _totalData.Where(s => s.Serial == serial).OrderBy(s => s.Time).ToList();
+            var items = _gpsDataBySerial[serial];
             if (items.Count <= 1)
             {
                 return false;
@@ -135,8 +205,8 @@ namespace ETAPredictor
 
         private GPSData GetLastStopBeforeCurrent(string serial)
         {
-            var items = _totalData.Where(s => s.Serial == serial).OrderByDescending(s => s.Time).ToList();
-            for (int i = 1; i < items.Count; i++)
+            var items = _gpsDataBySerial[serial];
+            for (int i = items.Count - 1; i >= 0; i--)
             {
                 if (items[i].AssociatedStopNode != null)
                 {
@@ -148,16 +218,16 @@ namespace ETAPredictor
 
         private GPSData GetArrivalAtStopBeforeCurrent(string serial)
         {
-            var items = _totalData.Where(s => s.Serial == serial).OrderByDescending(s => s.Time).ToList();
+            var items = _gpsDataBySerial[serial];
             var lookingForExit = false;
-            for (int i = 1; i < items.Count; i++)
+            for (int i = items.Count - 1; i >= 0; i--)
             {
                 if (lookingForExit)
                 {
                     if (items[i].AssociatedStopNode == null)
                     {
                         //return the previous ping
-                        return items[i - 1];
+                        return items[i + 1];
                     }
                 }
                 else
@@ -171,7 +241,7 @@ namespace ETAPredictor
             return null;
         }
 
-        public ETATable GetETATable()
+        public ICollection<ETATableEntry> GetETATable()
         {
             PruneRecentPositions();
             ETATable table = new ETATable();
@@ -179,21 +249,28 @@ namespace ETAPredictor
             return table;
         }
 
+        public IDictionary<string, GPSData> GetRecentPositions()
+        {
+            PruneRecentPositions();
+            return _recentPositionsBySerial;            
+        }
+
         //Get the ETA to a stop, where stop represents the stop itself...
         private TimeSpan? GetETAForStop(GPSData stop)
         {
             //try once with GeoHelper.GetEstimatedPosition, if it doesn't work we'll use the last known good position
-            var returnValue =  _RecentPositions.Keys.ToList().Select(s => GetETAForStopAndBus(stop, GeoHelper.GetEstimatedPosition(_RecentPositions[s], CurrentTime - _RecentPositions[s].Time))).OrderBy(x => x).FirstOrDefault();
+            //var returnValue = _recentPositionsBySerial.Keys.ToList().Select(s => GetETAForStopAndBus(stop, GeoHelper.GetEstimatedPosition(_recentPositionsBySerial[s], CurrentTime - _recentPositionsBySerial[s].Time))).OrderBy(x => x).FirstOrDefault();
+            TimeSpan? returnValue = null;
             if(returnValue == null || returnValue == TimeSpan.MaxValue)
             {
-                returnValue = _RecentPositions.Keys.ToList().Select(s => GetETAForStopAndBus(stop, _RecentPositions[s])).OrderBy(x => x).FirstOrDefault();
+                returnValue = _recentPositionsBySerial.Keys.ToList().Select(s => GetETAForStopAndBus(stop, _recentPositionsBySerial[s])).OrderBy(x => x).FirstOrDefault();
             }
             return returnValue;
         }
 
         private void PruneRecentPositions()
         {
-            _RecentPositions.Keys.ToList().ForEach(x => { if (_RecentPositions[x].Time < CurrentTime.AddMinutes(-3)) { _RecentPositions.Remove(x); } });
+            _recentPositionsBySerial.Keys.ToList().ForEach(x => { if (_recentPositionsBySerial[x].Time < CurrentTime.AddMinutes(-3)) { _recentPositionsBySerial.Remove(x); } });
         }
 
         private TimeSpan? GetETAForStopAndBus(GPSData stop, GPSData busPosition)
@@ -204,18 +281,35 @@ namespace ETAPredictor
                 return TimeSpan.MinValue;
             }
 
-            //find nearest locations in history
-            var examples = _totalData.Where(d => d.IdentifiedAsStopName == null && GeoHelper.GetDistanceBetweenInMeters(d, busPosition) < 20 && GeoHelper.GetAngularDistanceBetweenHeadings(d, busPosition) < 90);
+            //find nearest locations in history, and not recent history (more than 5 minutes old)
+            var examples = _gpsDataBySerial[busPosition.Serial].Where(d => d.Time < CurrentTime.AddMinutes(-5) &&  d.IdentifiedAsStopName == null && GeoHelper.GetDistanceBetweenInMeters(d, busPosition) < 20 && GeoHelper.GetAngularDistanceBetweenHeadings(d, busPosition) < 90);
 
             if (examples.Count() < 2)
             {
-                examples = _totalData.Where(d => d.IdentifiedAsStopName == null && GeoHelper.GetDistanceBetweenInMeters(d, busPosition) < 50 && GeoHelper.GetAngularDistanceBetweenHeadings(d, busPosition) < 90);
+                examples = _gpsDataBySerial[busPosition.Serial].Where(d => d.Time < CurrentTime.AddMinutes(-5) && d.IdentifiedAsStopName == null && GeoHelper.GetDistanceBetweenInMeters(d, busPosition) < 50 && GeoHelper.GetAngularDistanceBetweenHeadings(d, busPosition) < 90);
             }
 
             if (examples.Count() < 2)
             {
-                examples = _totalData.Where(d => d.IdentifiedAsStopName == null && GeoHelper.GetDistanceBetweenInMeters(d, busPosition) < 100 && GeoHelper.GetAngularDistanceBetweenHeadings(d, busPosition) < 90);
+                examples = _gpsDataBySerial[busPosition.Serial].Where(d => d.Time < CurrentTime.AddMinutes(-5) && d.IdentifiedAsStopName == null && GeoHelper.GetDistanceBetweenInMeters(d, busPosition) < 100 && GeoHelper.GetAngularDistanceBetweenHeadings(d, busPosition) < 90);
             }
+
+            if(examples.Count() == 0)
+            {
+                //we've got to look at other vehicles to get an idea of what may be going on here...
+                _gpsDataBySerial.Keys.SelectMany(k => _gpsDataBySerial[k]).Where(d => d.Time < CurrentTime.AddMinutes(-5) && d.IdentifiedAsStopName == null && GeoHelper.GetDistanceBetweenInMeters(d, busPosition) < 20 && GeoHelper.GetAngularDistanceBetweenHeadings(d, busPosition) < 90);
+
+                if (examples.Count() < 2)
+                {
+                    examples = _gpsDataBySerial.Keys.SelectMany(k => _gpsDataBySerial[k]).Where(d => d.Time < CurrentTime.AddMinutes(-5) && d.IdentifiedAsStopName == null && GeoHelper.GetDistanceBetweenInMeters(d, busPosition) < 50 && GeoHelper.GetAngularDistanceBetweenHeadings(d, busPosition) < 90);
+                }
+
+                if (examples.Count() < 2)
+                {
+                    examples = _gpsDataBySerial.Keys.SelectMany(k => _gpsDataBySerial[k]).Where(d => d.Time < CurrentTime.AddMinutes(-5) && d.IdentifiedAsStopName == null && GeoHelper.GetDistanceBetweenInMeters(d, busPosition) < 100 && GeoHelper.GetAngularDistanceBetweenHeadings(d, busPosition) < 90);
+                }
+            }
+
 
 
             examples = examples.ToList();
@@ -230,22 +324,77 @@ namespace ETAPredictor
                 }
                 if (edges.Count() > 1)
                 {
-                    //yes? ambiguity, deal with it
-                    //pick the longer of the possibilities to err on side of pleasant surprise that your bus is early
+                    //what does it mean to be here?
+                    //it means that we have examples of busses (this bus likely) going to different places from here... more than one edge.
+                    //ambiguity, deal with it
                     List<double> AverageETAs = new List<double>();
-                    //TODO: the expression below is wrong.... both edges could be pointing at different stops so this doesn't work...
-                    double avg = edges.Select(edge => examples.Where(i => i.AssociatedRouteEdge == edge).Select(i => HistoricalTimeToStop(i, stop)).Where(ts => ts != TimeSpan.MaxValue).Average(ts => (double)ts.Ticks)).OrderByDescending(t => t).FirstOrDefault();
+
+                    //we take the longest of most recent times and use that
+                    double avg = edges.Select(edge => examples.Where(i => i.AssociatedRouteEdge == edge).Select(i => new { item = i, time = HistoricalTimeToStop(i, stop) }).Where(ts => ts.time != TimeSpan.MaxValue).OrderByDescending(i => i.item.Time).First().time.Ticks).OrderByDescending(t => t).FirstOrDefault();
                     return new TimeSpan((long)avg);
                     //TODO: take into account recency
+
+
                 }
                 else
                 {
-                    //no? historical avg then
-                    //average out their ETA to next stop
-                    double avg = examples.Select(i => HistoricalTimeToStop(i, stop)).Where(ts => ts != TimeSpan.MaxValue).Average(ts => (double)ts.Ticks);
-                    //but... let's take into account recent times, unless we don't have any 'cause this bus just got going
-                    //TODO: take into account recency
-                    return new TimeSpan((long)avg);
+
+                    var bestGuess = TimeSpan.MaxValue;
+                    //but... let's take into account recent times, unless we don't have any 'cause this bus just got going, we only want the 4 most recent examples if we end up averaging anyway...
+                    var recentItems = examples.OrderByDescending(e => e.Time).Where(i => HistoricalTimeToStop(i, stop) != TimeSpan.MaxValue).Take(4);
+
+                    //if we have recent data that isn't too old, use that....
+                    if (recentItems.Count() > 0 && recentItems.First().Time > this.CurrentTime.AddHours(-2)) {
+                        var lastTimeItTook = recentItems.Select(i => HistoricalTimeToStop(i, stop)).FirstOrDefault();
+
+                        if (lastTimeItTook != null)
+                        {
+                            bestGuess = lastTimeItTook;
+                        }
+                    }
+
+                            
+                    //average ETA to next stop
+                    double avg = recentItems.Select(i => HistoricalTimeToStop(i, stop)).Average(ts => (double)ts.Ticks);
+                    TimeSpan averageTime = new TimeSpan((long)avg);
+
+                    if (bestGuess == TimeSpan.MaxValue)
+                    {
+                        //no? historical avg then
+                        bestGuess = averageTime;
+                    }
+
+
+                    //so now we hopefully have a best guess, but how are the last X GPSData compared to *historical* (more than 15 mins ago) speed?
+                    var curAvg = GetAverageSpeedOnEdge(busPosition);
+
+                    var totalExamples = new List<GPSData>();
+                    _gpsDataBySerial.Keys.ToList().ForEach(key => {
+                        totalExamples.AddRange(_gpsDataBySerial[key].Where(d => d.Time < busPosition.Time.AddMinutes(-15) && d.IdentifiedAsStopName == null && GeoHelper.GetDistanceBetweenInMeters(d, busPosition) < 100 && GeoHelper.GetAngularDistanceBetweenHeadings(d, busPosition) < 90));
+                    });
+                    if(totalExamples.Count == 0)
+                    {
+                        //slightly expand the search
+                        _gpsDataBySerial.Keys.ToList().ForEach(key => {
+                            totalExamples.AddRange(_gpsDataBySerial[key].Where(d => d.Time < busPosition.Time.AddMinutes(-15) && d.IdentifiedAsStopName == null && GeoHelper.GetDistanceBetweenInMeters(d, busPosition) < 150 && GeoHelper.GetAngularDistanceBetweenHeadings(d, busPosition) < 135));
+                        });
+                    }
+                    var samplesAverageItems = totalExamples.Select(ex => GetAverageSpeedOnEdge(ex)).Where(time => time != -1);
+
+                    if (samplesAverageItems.Any())
+                    {
+                        var samplesAverage = samplesAverageItems.Average();
+
+                        //are we fast or slow? 8MPH more than avg?
+                        if (Math.Abs(curAvg - samplesAverage) > 5 )
+                        {
+                            var scale = curAvg / samplesAverage;
+                            bestGuess = bestGuess / scale;
+                        }
+                    }
+
+                    return bestGuess;
+
                 }
 
             }
@@ -255,19 +404,76 @@ namespace ETAPredictor
             }
         }
 
+        private double GetAverageSpeedOnEdge(GPSData data)
+        {
+            if(data.MemoizedAverageSpeedOnEdgeToThisPoint != -1)
+            {
+                return data.MemoizedAverageSpeedOnEdgeToThisPoint;
+            }
+
+            var items = _gpsDataBySerial[data.Serial];
+            //.OrderByDescending(busPosition => busPosition.Time).SkipWhile(item => item != data).TakeWhile(busPosition => busPosition.AssociatedStopNode != null);
+            List<GPSData> dataPoints = new List<GPSData>();
+            bool found = false;
+            for(int i = items.Count - 1; i >= 0; i--)
+            {
+                if(items[i] == data)
+                {
+                    found = true;
+                    if(i < 20)
+                    {
+                        //we have fewer than 20 pings, not enough to accurately gauge traffic on this edge
+                        return -1;
+                    }
+                }
+                if (found)
+                {
+                    if(items[i].AssociatedStopNode == null)
+                    {
+                        if (items[i].Speed > 3) //we want to avoid tracking stops at lights and low speed during acceleration, limit avg to above 3mph data points
+                        {
+                            dataPoints.Add(items[i]);
+                        }
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+            }
+            
+            if (dataPoints.Any())
+            {
+                data.MemoizedAverageSpeedOnEdgeToThisPoint = dataPoints.Average(i => i.Speed);
+                return data.MemoizedAverageSpeedOnEdgeToThisPoint;
+            }
+            else
+            {
+                return -1;
+            }
+        }
+
         //Given a historical example, loop forward in time until you get to the stop that matches what you are looking for
         //then return the timespan between them, giving us a historical ETA
+        //give up with Max Timespan after X attempts
         private TimeSpan HistoricalTimeToStop(GPSData example, GPSData stop)
         {
-            var index = _totalData.IndexOf(example);
-            while (index < _totalData.Count)
+            if (example.MemoizedTimesToStops.ContainsKey(stop.IdentifiedAsStopName))
             {
-                var item = _totalData[index];
+                return example.MemoizedTimesToStops[stop.IdentifiedAsStopName];
+            }
+            var items = _gpsDataBySerial[example.Serial];
+            var index = items.IndexOf(example);
+            while (index < items.Count)
+            {
+                var item = items[index];
                 //we compare the associated stop node's data node with stop
                 //and not the item directly. We could also match on StopName
-                if (item.Serial == example.Serial && item.AssociatedStopNode?.Data == stop) 
+                if (item.AssociatedStopNode?.Data == stop) 
                 {
-                    return _totalData[index].Time - example.Time;
+                    var timeToGetToStop = items[index].Time - example.Time;
+                    example.MemoizedTimesToStops[stop.IdentifiedAsStopName] = timeToGetToStop;
+                    return timeToGetToStop;
                 }
                 index++;
             }
