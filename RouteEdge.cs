@@ -21,7 +21,7 @@ namespace ETAPredictor
 
         internal void IntegrateTimeOnRoute(TimeSpan time)
         {
-            AverageTimeOnRoute = ((AverageTimeOnRoute * AveragedWithCount) + time) / (++AveragedWithCount);
+            AverageTimeOnRoute = new TimeSpan(((AverageTimeOnRoute.Ticks * AveragedWithCount) + time.Ticks) / (++AveragedWithCount));
             CurrentTimeOnRoute = time;
         }
         

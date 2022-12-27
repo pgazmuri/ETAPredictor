@@ -3,8 +3,9 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text;
-using System.Text.Json;
+using Newtonsoft.Json;
 using System.Threading.Tasks;
+using System.Reflection;
 
 namespace ETAPredictor
 {
@@ -30,7 +31,7 @@ namespace ETAPredictor
         public string SaveToJSON() {
             _stops.Select(s => s.Data).ToList();
             _gpsDataBySerial.Keys.ToList().SelectMany(key => _gpsDataBySerial[key]).OrderBy(item => item.Time).ToList();
-            string serialized = JsonSerializer.Serialize(new RoutesModelFileFormat()
+            string serialized = JsonConvert.SerializeObject(new RoutesModelFileFormat()
             {
                 Stops = _stops.Select(s => s.Data).ToList(),
                 Data = _gpsDataBySerial.Keys.ToList().SelectMany(key => _gpsDataBySerial[key]).OrderBy(item => item.Time).ToList()
@@ -40,7 +41,7 @@ namespace ETAPredictor
 
         public static RoutesModel LoadFromJSON(string Model, bool SimulationMode = false)
         {
-            var fileFormat = JsonSerializer.Deserialize<RoutesModelFileFormat>(Model);
+            var fileFormat = JsonConvert.DeserializeObject<RoutesModelFileFormat>(Model);
 
             RoutesModel newModel = new RoutesModel(fileFormat.Stops, SimulationMode);
             if (SimulationMode)
@@ -386,7 +387,7 @@ namespace ETAPredictor
                         if (Math.Abs(curAvg - samplesAverage) > 5 )
                         {
                             var scale = curAvg / samplesAverage;
-                            bestGuess = bestGuess / scale;
+                            bestGuess = new TimeSpan((long)((double)bestGuess.Ticks / scale));
                         }
                     }
 
