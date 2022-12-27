@@ -1,14 +1,41 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
 	  <LangVersion>preview</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+    <Description>Predict ETA of vehicles as they travel to stops on routes that generally repeat. Suitable for busses/shuttles on campuses, at airports, etc...
+
+Provide the location of known stops, along with live (or historical) GPS data from vehicles, and the model will provide a table of ETAs for each stop.
+
+The model is intended to be very lightweight in terms of compute, eschewing processing heavy AI for a simple statistical approach based on historical ETA based on current vehicle location.
+
+It also takes into account current speeds compared to historical speeds so that things like traffic are (naively) taken into account. Data older than 5 days is automatically purged so the model does not consume mode and more memory over time.</Description>
+    <RepositoryUrl>https://github.com/pgazmuri/ETAPredictor</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/pgazmuri/ETAPredictor</PackageProjectUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReleaseNotes>Early implementation. Much will likely change from here.</PackageReleaseNotes>
+    <Company>Pablo Gazmuri</Company>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
   </PropertyGroup>
+
+	<ItemGroup>
+		<None Include="LICENSE" Pack="true" PackagePath="" />
+	</ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Geodesy" Version="4.1.0" />
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <None Update="README.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
   </ItemGroup>
 
 </Project>

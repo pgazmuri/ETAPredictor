@@ -8,7 +8,7 @@ namespace ETAPredictor
 {
     /// <summary>
     /// Represents a GPS Location with values typically supplied by GPSTrackers like the SinoTrack ST-901
-    /// Can also be used to represent a stop on a route, indicated by setting the IdentifiedAsStopName property.
+    /// Can also be used to represent the location of a stop on a route, indicated by setting the IdentifiedAsStopName property.
     /// </summary>
     [Serializable]
     public class GPSData
@@ -39,8 +39,8 @@ namespace ETAPredictor
         public string Serial { get; set; }
         public DateTime Time { get; set; }
 
-        internal StopNode AssociatedStopNode = null;
-        internal RouteEdge AssociatedRouteEdge = null;
+        internal StopNode? AssociatedStopNode = null;
+        internal RouteEdge? AssociatedRouteEdge = null;
         internal double MemoizedAverageSpeedOnEdgeToThisPoint = -1;
 
         /// <summary>

@@ -8,6 +8,9 @@ using System.Threading.Tasks;
 
 namespace ETAPredictor
 {
+    /// <summary>
+    /// The main component of ETAPredictor
+    /// </summary>
     public class RoutesModel
     {
         
@@ -245,7 +248,7 @@ namespace ETAPredictor
         {
             PruneRecentPositions();
             ETATable table = new ETATable();
-            _stops.Select(s => new ETATableEntry() { StopName = s.Data.IdentifiedAsStopName, ETA = GetETAForStop(s.Data) ?? TimeSpan.MaxValue }).ToList().ForEach(i => table.Add(i));
+            _stops.Select(s => GetETAForStop(s.Data)).ToList().ForEach(i => table.Add(i));
             return table;
         }
 
@@ -256,15 +259,9 @@ namespace ETAPredictor
         }
 
         //Get the ETA to a stop, where stop represents the stop itself...
-        private TimeSpan? GetETAForStop(GPSData stop)
+        private ETATableEntry GetETAForStop(GPSData stop)
         {
-            //try once with GeoHelper.GetEstimatedPosition, if it doesn't work we'll use the last known good position
-            //var returnValue = _recentPositionsBySerial.Keys.ToList().Select(s => GetETAForStopAndBus(stop, GeoHelper.GetEstimatedPosition(_recentPositionsBySerial[s], CurrentTime - _recentPositionsBySerial[s].Time))).OrderBy(x => x).FirstOrDefault();
-            TimeSpan? returnValue = null;
-            if(returnValue == null || returnValue == TimeSpan.MaxValue)
-            {
-                returnValue = _recentPositionsBySerial.Keys.ToList().Select(s => GetETAForStopAndBus(stop, _recentPositionsBySerial[s])).OrderBy(x => x).FirstOrDefault();
-            }
+            var returnValue = _recentPositionsBySerial.Keys.ToList().Select(s => new ETATableEntry(stop.IdentifiedAsStopName, GetETAForStopAndBus(stop, _recentPositionsBySerial[s]) ?? TimeSpan.MaxValue,s)).OrderBy(x => x.ETA).First();
             return returnValue;
         }
 

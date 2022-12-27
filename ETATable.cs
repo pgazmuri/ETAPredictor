@@ -24,7 +24,12 @@ namespace ETAPredictor
         /// </summary>
         public string Serial;
 
-        public ETATableEntry() { }
+        public ETATableEntry(string StopName, TimeSpan ETA, string Serial) { 
+        
+            this.StopName = StopName;
+            this.ETA = ETA;
+            this.Serial = Serial;
+        }
 
     }
 }
