@@ -38,7 +38,7 @@ namespace ETAPredictor
             return serialized;
         }
 
-        public static RoutesModel LoadFromJSON(string Model, bool SimulationMode)
+        public static RoutesModel LoadFromJSON(string Model, bool SimulationMode = false)
         {
             var fileFormat = JsonSerializer.Deserialize<RoutesModelFileFormat>(Model);
 
