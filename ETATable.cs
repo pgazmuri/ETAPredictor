@@ -12,18 +12,19 @@ namespace ETAPredictor
         /// <summary>
         /// Name of the stop
         /// </summary>
-        public string StopName;
+        public string StopName { get; set; }
         
         /// <summary>
         /// Estimated Time of arrival at the stop
         /// </summary>
-        public TimeSpan ETA;
+        public TimeSpan ETA { get; set; }
 
         /// <summary>
         /// Unique identifier of GPS device/vehicle expected to arrive.
         /// </summary>
-        public string Serial;
+        public string Serial { get; set; }
 
+        public ETATableEntry() { }
         public ETATableEntry(string StopName, TimeSpan ETA, string Serial) { 
         
             this.StopName = StopName;
