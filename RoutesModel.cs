@@ -77,7 +77,7 @@ namespace ETAPredictor
             }
         }
 
-        public RoutesModel(List<GPSData> Stops, bool SimulationMode)
+        public RoutesModel(List<GPSData> Stops, bool SimulationMode = false)
         {
             _simulationMode = SimulationMode;
 
