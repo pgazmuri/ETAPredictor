@@ -6,8 +6,6 @@ using System.Threading.Tasks;
 
 namespace ETAPredictor
 {
-
-    [Serializable]
     public class RoutesModelFileFormat
     {
         public List<GPSData> Stops { get; set; } = new List<GPSData>();
