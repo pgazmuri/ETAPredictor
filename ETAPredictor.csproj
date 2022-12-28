@@ -16,13 +16,13 @@ It also takes into account current speeds compared to historical speeds so that 
     <RepositoryUrl>https://github.com/pgazmuri/ETAPredictor</RepositoryUrl>
     <PackageProjectUrl>https://github.com/pgazmuri/ETAPredictor</PackageProjectUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageReleaseNotes>Early implementation. Much will likely change from here.</PackageReleaseNotes>
+    <PackageReleaseNotes>ETA predictions now return null instead ot TimeSpan.MaxValue where a prediction can't be made. README updated.</PackageReleaseNotes>
     <Company>Pablo Gazmuri</Company>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
-    <Version>1.0.1</Version>
-    <AssemblyVersion>1.0.1</AssemblyVersion>
-    <FileVersion>1.0.1</FileVersion>
+    <Version>1.0.2</Version>
+    <AssemblyVersion>1.0.2</AssemblyVersion>
+    <FileVersion>1.0.2</FileVersion>
   </PropertyGroup>
 
 	<ItemGroup>

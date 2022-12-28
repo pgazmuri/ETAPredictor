@@ -4,7 +4,7 @@ Predict ETA of vehicles as they travel to stops on routes that generally repeat.
 
 Provide the location of known stops, along with live (or historical) GPS data from vehicles, and the model will provide a table of ETAs for each stop.
 
-The model is intended to be very lightweight in terms of compute, eschewing processing heavy AI for a simple statistical approach based on historical ETA based on current vehicle location. It knows nothing about roads or traffic and does not rely on any external data feeds.
+The model is intended to be very lightweight in terms of compute, eschewing processing heavy AI for a simple statistical approach based on historical ETA based on current vehicle location. It knows nothing about roads or traffic and does not rely on any external data feeds. ""Roads?! Where we're going, we don't need [to know about] roads!""
 
 It also takes into account current speeds compared to historical speeds so that things like traffic are (naively) taken into account. Data older than 5 days is automatically purged so the model only grows to a point and does not consume more and more memory over time.
 
@@ -78,6 +78,7 @@ model.GetETATable();
 
 ETA table will include null times if no statistically relevant data points exist to make a prediction. As you feed more data into the model this should go away. It's best to collect data for a few days and save your model before making the predictions live.
 
+Predictions can jump around a bit... this model makes no attempt at smoothing. It's recommended that you implement some kind of smoothing or averaging of predictions if this will be jarring to your users. You could have a countdown clock that only resets when the predictions become shorter over time, or subtly speeds up or slows down based on moving averages. I believe these choices are best left to the UI and not the backend, so I have no plans to implement smoothing. Reach out to me if you feel differently!.
 
 
 #Planned improvements
