@@ -262,7 +262,7 @@ namespace ETAPredictor
         //Get the ETA to a stop, where stop represents the stop itself...
         private ETATableEntry GetETAForStop(GPSData stop)
         {
-            var returnValue = _recentPositionsBySerial.Keys.ToList().Select(s => new ETATableEntry(stop.IdentifiedAsStopName, GetETAForStopAndBus(stop, _recentPositionsBySerial[s]) ?? TimeSpan.MaxValue,s)).OrderBy(x => x.ETA).First();
+            var returnValue = _recentPositionsBySerial.Keys.ToList().Select(s => new ETATableEntry(stop.IdentifiedAsStopName, GetETAForStopAndBus(stop, _recentPositionsBySerial[s]),s)).OrderBy(x => x.ETA).First();
             return returnValue;
         }
 

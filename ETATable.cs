@@ -17,7 +17,7 @@ namespace ETAPredictor
         /// <summary>
         /// Estimated Time of arrival at the stop
         /// </summary>
-        public TimeSpan ETA { get; set; }
+        public TimeSpan? ETA { get; set; }
 
         /// <summary>
         /// Unique identifier of GPS device/vehicle expected to arrive.
@@ -25,10 +25,10 @@ namespace ETAPredictor
         public string Serial { get; set; }
 
         public ETATableEntry() { }
-        public ETATableEntry(string StopName, TimeSpan ETA, string Serial) { 
+        public ETATableEntry(string StopName, TimeSpan? ETA, string Serial) { 
         
             this.StopName = StopName;
-            this.ETA = ETA;
+            this.ETA = (ETA == TimeSpan.MaxValue) ? null : ETA; //we use maxvalue to represent something unknown within the API (helpful when sorting various options), but we want to return nulls in the table presented to API consumers, so we convert here...
             this.Serial = Serial;
         }
 
