@@ -28,15 +28,20 @@ namespace ETAPredictor
         private int _garbageCollectionCounter = 0;
         private long _totalDataPoints = 0;
 
+        private object _syncRoot = new object();
+
         public string SaveToJSON() {
-            _stops.Select(s => s.Data).ToList();
-            _gpsDataBySerial.Keys.ToList().SelectMany(key => _gpsDataBySerial[key]).OrderBy(item => item.Time).ToList();
-            string serialized = JsonConvert.SerializeObject(new RoutesModelFileFormat()
+            lock (_syncRoot)
             {
-                Stops = _stops.Select(s => s.Data).ToList(),
-                Data = _gpsDataBySerial.Keys.ToList().SelectMany(key => _gpsDataBySerial[key]).OrderBy(item => item.Time).ToList()
-            });
-            return serialized;
+                _stops.Select(s => s.Data).ToList();
+                _gpsDataBySerial.Keys.ToList().SelectMany(key => _gpsDataBySerial[key]).OrderBy(item => item.Time).ToList();
+                string serialized = JsonConvert.SerializeObject(new RoutesModelFileFormat()
+                {
+                    Stops = _stops.Select(s => s.Data).ToList(),
+                    Data = _gpsDataBySerial.Keys.ToList().SelectMany(key => _gpsDataBySerial[key]).OrderBy(item => item.Time).ToList()
+                });
+                return serialized;
+            }
         }
 
         public static RoutesModel LoadFromJSON(string Model, bool SimulationMode = false)
@@ -74,7 +79,10 @@ namespace ETAPredictor
                 {
                     throw new InvalidOperationException("Cannot set current time without enabling simulation mode on Model construction.");
                 }
-                _simulationTime = value;
+                lock (_syncRoot)
+                {
+                    _simulationTime = value;
+                }
             }
         }
 
@@ -100,87 +108,93 @@ namespace ETAPredictor
 
         public void IntegrateDataPointIntoModel(GPSData dataPoint)
         {
-            _totalDataPoints++;
-            _garbageCollectionCounter++;
 
-            if(_totalDataPoints > 150000 && _garbageCollectionCounter > 5000)
+            lock (_syncRoot)
             {
-                CollectGarbage();
-                _garbageCollectionCounter = 0;
-            }
+                _totalDataPoints++;
+                _garbageCollectionCounter++;
 
-            EnsureGPSSerialList(dataPoint.Serial);
-            //we assume these are fed to us in order
-            _gpsDataBySerial[dataPoint.Serial].Add(dataPoint);
-
-            //update recent positions
-            _recentPositionsBySerial[dataPoint.Serial] = dataPoint;
-
-            //First Step:
-            //is this point a stop? Label it, add to stopNode object, associate the stopNode Object
-
-            //first we get the nearest stop
-            var NearestStop = _stops.OrderByDescending(s => GeoHelper.GetDistanceBetweenInMeters(dataPoint, s.Data)).First();
-
-            //if we are within 60 meters, it's a stop
-            if (GeoHelper.GetDistanceBetweenInMeters(dataPoint, NearestStop.Data) < 60)
-            {
-                NearestStop.AssociatedData.Add(dataPoint);
-                dataPoint.AssociatedStopNode = NearestStop;
-                dataPoint.IdentifiedAsStopName = NearestStop.Data.IdentifiedAsStopName;
-
-                //Have we just arrived at a stop? Is the previous item not a stop?
-                if (!IsPreviousItemStop(dataPoint.Serial))
+                if (_totalDataPoints > 150000 && _garbageCollectionCounter > 5000)
                 {
-                    //can we find a previous stop for this serial?
-                    var lastStop = GetLastStopBeforeCurrent(dataPoint.Serial);
-                    if (lastStop != null)
+                    CollectGarbage();
+                    _garbageCollectionCounter = 0;
+                }
+
+                EnsureGPSSerialList(dataPoint.Serial);
+                //we assume these are fed to us in order
+                _gpsDataBySerial[dataPoint.Serial].Add(dataPoint);
+
+                //update recent positions
+                _recentPositionsBySerial[dataPoint.Serial] = dataPoint;
+
+                //First Step:
+                //is this point a stop? Label it, add to stopNode object, associate the stopNode Object
+
+                //first we get the nearest stop
+                var NearestStop = _stops.OrderByDescending(s => GeoHelper.GetDistanceBetweenInMeters(dataPoint, s.Data)).First();
+
+                //if we are within 60 meters, it's a stop
+                if (GeoHelper.GetDistanceBetweenInMeters(dataPoint, NearestStop.Data) < 60)
+                {
+                    NearestStop.AssociatedData.Add(dataPoint);
+                    dataPoint.AssociatedStopNode = NearestStop;
+                    dataPoint.IdentifiedAsStopName = NearestStop.Data.IdentifiedAsStopName;
+
+                    //Have we just arrived at a stop? Is the previous item not a stop?
+                    if (!IsPreviousItemStop(dataPoint.Serial))
                     {
-                        //Yes! We may have a new edge to build into our model, let's check.
-                        var edge = _routes.Where(r => r.ToNode == NearestStop && r.FromNode == lastStop.AssociatedStopNode).FirstOrDefault();
-                        if (edge == null)
+                        //can we find a previous stop for this serial?
+                        var lastStop = GetLastStopBeforeCurrent(dataPoint.Serial);
+                        if (lastStop != null)
                         {
-                            edge = new RouteEdge();
-                            edge.FromNode = lastStop.AssociatedStopNode;
-                            edge.ToNode = NearestStop;
-                            _routes.Add(edge);
+                            //Yes! We may have a new edge to build into our model, let's check.
+                            var edge = _routes.Where(r => r.ToNode == NearestStop && r.FromNode == lastStop.AssociatedStopNode).FirstOrDefault();
+                            if (edge == null)
+                            {
+                                edge = new RouteEdge();
+                                edge.FromNode = lastStop.AssociatedStopNode;
+                                edge.ToNode = NearestStop;
+                                _routes.Add(edge);
+                            }
+
+                            //update time on route
+                            edge.IntegrateTimeOnRoute(dataPoint.Time - lastStop.Time);
+
+
+                            //Associate previous data points from this serial to this edge...
+                            _gpsDataBySerial[dataPoint.Serial].Take(_gpsDataBySerial[dataPoint.Serial].Count - 1).OrderByDescending(d => d.Time).TakeWhile(d => d.IdentifiedAsStopName == null).ToList().ForEach(d =>
+                            {
+                                d.AssociatedRouteEdge = edge;
+                                edge.AssociatedData.Add(d);
+                            });
                         }
-
-                        //update time on route
-                        edge.IntegrateTimeOnRoute(dataPoint.Time - lastStop.Time);
-                        
-
-                        //Associate previous data points from this serial to this edge...
-                        _gpsDataBySerial[dataPoint.Serial].Take(_gpsDataBySerial[dataPoint.Serial].Count - 1).OrderByDescending(d => d.Time).TakeWhile(d => d.IdentifiedAsStopName == null).ToList().ForEach(d =>
-                        {
-                            d.AssociatedRouteEdge = edge;
-                            edge.AssociatedData.Add(d);
-                        });
                     }
                 }
-            }
-            else //we are not at a stop...
-            {
-                //Are we just leaving a stop? Is the previous item a stop?
-                if (IsPreviousItemStop(dataPoint.Serial))
+                else //we are not at a stop...
                 {
-                    //Update stop timing
-                    var exitingStop = GetLastStopBeforeCurrent(dataPoint.Serial);
-                    var arrivingStop = GetArrivalAtStopBeforeCurrent(dataPoint.Serial);
-                    //maybe we started tracking within the stop and never previously arrived while tracking...
-                    if (arrivingStop != null)
+                    //Are we just leaving a stop? Is the previous item a stop?
+                    if (IsPreviousItemStop(dataPoint.Serial))
                     {
-                        exitingStop.AssociatedStopNode.CurrentTimeAtStop = exitingStop.Time - arrivingStop.Time;
+                        //Update stop timing
+                        var exitingStop = GetLastStopBeforeCurrent(dataPoint.Serial);
+                        var arrivingStop = GetArrivalAtStopBeforeCurrent(dataPoint.Serial);
+                        //maybe we started tracking within the stop and never previously arrived while tracking...
+                        if (arrivingStop != null)
+                        {
+                            exitingStop.AssociatedStopNode.CurrentTimeAtStop = exitingStop.Time - arrivingStop.Time;
+                        }
+                        //TODO: set average time
                     }
-                    //TODO: set average time
-                }
 
+                }
             }
 
         }
 
         private void CollectGarbage()
         {
+
+           
             var expiration = CurrentTime.AddDays(-5);
             //we want to remove data beyond a certain length of time, just to conserve memory. The model will basically evolve as needed over time, will be saved and rehydrated as services restart and scale, etc...
             //so we shouldn't rely on a particular expiration windowWe probably should count backwards until we get to maybe 10K*N(serial) entries, but it's tricky because of different buckets per serial and having a consistent cutoff time is probably good. Keep in mind, 20 minutes of driving a single vehicle produces about 200 entries. 10K is like 50 hours of bus history
@@ -192,7 +206,8 @@ namespace ETAPredictor
 
             //remove the data from _stops and _edges
             _stops.ForEach(stop => stop.AssociatedData.RemoveAll(item => item.Time < expiration));
-            _routes.ForEach(route => route.AssociatedData.RemoveAll(route => route.Time < expiration)); 
+            _routes.ForEach(route => route.AssociatedData.RemoveAll(route => route.Time < expiration));
+
 
         }
 
@@ -247,23 +262,31 @@ namespace ETAPredictor
 
         public ICollection<ETATableEntry> GetETATable()
         {
-            PruneRecentPositions();
-            ETATable table = new ETATable();
-            if (_stops?.Count > 0 && _totalDataPoints > 0)
+
+            lock (_syncRoot)
             {
-                _stops.Select(s => GetETAForStop(s.Data)).ToList().ForEach(i => table.Add(i));
+                PruneRecentPositions();
+                ETATable table = new ETATable();
+                if (_stops?.Count > 0 && _totalDataPoints > 0)
+                {
+                    _stops.Select(s => GetETAForStop(s.Data)).ToList().ForEach(i => table.Add(i));
+                }
+                else
+                {
+                    throw new ApplicationException("Cannot provide ETATable until both stops and data points have been supplied to the model. There is not enough data to even make null predictions.");
+                }
+                return table;
             }
-            else
-            {
-                throw new ApplicationException("Cannot provide ETATable until both stops and data points have been supplied to the model. There is not enough data to even make null predictions.");
-            }
-            return table;
         }
 
         public IDictionary<string, GPSData> GetRecentPositions()
         {
-            PruneRecentPositions();
-            return _recentPositionsBySerial;            
+
+            lock (_syncRoot)
+            {
+                PruneRecentPositions();
+                return _recentPositionsBySerial;
+            }
         }
 
         //Get the ETA to a stop, where stop represents the stop itself...
