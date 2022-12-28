@@ -308,7 +308,7 @@ namespace ETAPredictor
             //if we are at the stop return minvalue
             if(GeoHelper.GetDistanceBetweenInMeters(stop, busPosition) < 60)
             {
-                return TimeSpan.MinValue;
+                return new TimeSpan(0, 0, 0);
             }
 
             //find nearest locations in history, and not recent history (more than 5 minutes old)
