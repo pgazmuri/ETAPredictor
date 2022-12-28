@@ -249,7 +249,14 @@ namespace ETAPredictor
         {
             PruneRecentPositions();
             ETATable table = new ETATable();
-            _stops.Select(s => GetETAForStop(s.Data)).ToList().ForEach(i => table.Add(i));
+            if (_stops?.Count > 0 && _totalDataPoints > 0)
+            {
+                _stops.Select(s => GetETAForStop(s.Data)).ToList().ForEach(i => table.Add(i));
+            }
+            else
+            {
+                throw new ApplicationException("Cannot provide ETATable until both stops and data points have been supplied to the model. There is not enough data to even make null predictions.");
+            }
             return table;
         }
 
@@ -268,7 +275,9 @@ namespace ETAPredictor
 
         private void PruneRecentPositions()
         {
-            _recentPositionsBySerial.Keys.ToList().ForEach(x => { if (_recentPositionsBySerial[x].Time < CurrentTime.AddMinutes(-3)) { _recentPositionsBySerial.Remove(x); } });
+            List<string> toRemove = _recentPositionsBySerial.Keys.Where(x => _recentPositionsBySerial[x].Time < CurrentTime.AddMinutes(-3)).ToList();
+            toRemove.ForEach(r => _recentPositionsBySerial.Remove(r));
+
         }
 
         private TimeSpan? GetETAForStopAndBus(GPSData stop, GPSData busPosition)
