@@ -9,6 +9,7 @@ The model is intended to be very lightweight in terms of compute, eschewing proc
 It also takes into account current speeds compared to historical speeds so that things like traffic are (naively) taken into account. Data older than 5 days is automatically purged so the model only grows to a point and does not consume more and more memory over time.
 
 Example:
+```
 
 var stops = new List<GPSData>() { 
 
@@ -28,7 +29,7 @@ model.IntegrateDataPointIntoModel(<data from GPS tracker>);
 
 model.GetETATable();
 
-Returns:
+//Returns:
 
 [
 
@@ -38,7 +39,7 @@ Returns:
 
 ]
 
-
+```
 
 # Saving the model
 
@@ -52,6 +53,7 @@ Save the JSON to a cloud storage blob or local filesystem.
 
 By default, the model will use the current UTC DateTime in making predictions, assuming that the data you are feeding it is being provided in real time. For testing purposes, you may enable simulation mode:
 
+```
 
 var model = new ETAPRedictor.RoutesModel(stops, true); //second param sets simulationMode = true
 
@@ -72,16 +74,17 @@ model.CurrentTime = <your simulation time>;
 
 model.GetETATable();
 
+```
 
-
-#Known Issues
+# Known Issues
 
 ETA table will include null times if no statistically relevant data points exist to make a prediction. As you feed more data into the model this should go away. It's best to collect data for a few days and save your model before making the predictions live.
 
-Predictions can jump around a bit... this model makes no attempt at smoothing. It's recommended that you implement some kind of smoothing or averaging of predictions if this will be jarring to your users. You could have a countdown clock that only resets when the predictions become shorter over time, or subtly speeds up or slows down based on moving averages. I believe these choices are best left to the UI and not the backend, so I have no plans to implement smoothing. Reach out to me if you feel differently!.
+Predictions can jump around a bit... this model makes no attempt at smoothing. It's recommended that you implement some kind of smoothing or averaging of predictions if this will be jarring to your users. 
+You could have a countdown clock that only resets when the predictions become shorter over time, or subtly speeds up or slows down based on moving averages. I believe these choices are best left to the UI and not the backend, so I have no plans to implement smoothing. Reach out to me if you feel differently!
 
 
-#Planned improvements
+# Planned improvements
 
 We currently match historical data points based on location alone. Currently it operates by assuming that the most recent data points are most relevant, so if there's a slowdown over a long period of time, the system will adjust.  But a short term slowdown will cause the model to be wrong both as it slows down and as it speeds up again. 
 
