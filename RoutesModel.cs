@@ -227,6 +227,11 @@ namespace ETAPredictor
             var items = _gpsDataBySerial[serial];
             for (int i = items.Count - 1; i >= 0; i--)
             {
+                if(i > 0 && (items[i].Time - items[i-1].Time) > TimeSpan.FromMinutes(3))
+                {
+                    //we have a 3 minute or larger gap between records for this serial. data is unreliable (we may have saved and then rehydrated this model), return null
+                    return null;
+                }
                 if (items[i].AssociatedStopNode != null)
                 {
                     return items[i];
@@ -241,6 +246,11 @@ namespace ETAPredictor
             var lookingForExit = false;
             for (int i = items.Count - 1; i >= 0; i--)
             {
+                if (i > 0 && (items[i].Time - items[i - 1].Time) > TimeSpan.FromMinutes(3))
+                {
+                    //we have a 3 minute or larger gap between records for this serial. data is unreliable (we may have saved and then rehydrated this model), return null
+                    return null;
+                }
                 if (lookingForExit)
                 {
                     if (items[i].AssociatedStopNode == null)
@@ -339,10 +349,6 @@ namespace ETAPredictor
                     examples = _gpsDataBySerial.Keys.SelectMany(k => _gpsDataBySerial[k]).Where(d => d.Time < CurrentTime.AddMinutes(-5) && d.IdentifiedAsStopName == null && GeoHelper.GetDistanceBetweenInMeters(d, busPosition) < 100 && GeoHelper.GetAngularDistanceBetweenHeadings(d, busPosition) < 90);
                 }
             }
-
-
-
-            examples = examples.ToList();
 
             if (examples.Count() > 0)
             {
@@ -497,6 +503,13 @@ namespace ETAPredictor
             while (index < items.Count)
             {
                 var item = items[index];
+                if (index + 1 < items.Count)
+                {
+                    if((items[index + 1].Time - item.Time) > TimeSpan.FromMinutes(3))
+                    {
+                        return TimeSpan.MaxValue;//this example never makes it to the stop because there is a gap in reporting and we don't want that to mess up stats...
+                    }
+                }
                 //we compare the associated stop node's data node with stop
                 //and not the item directly. We could also match on StopName
                 if (item.AssociatedStopNode?.Data == stop) 
